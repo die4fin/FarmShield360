@@ -61,6 +61,15 @@ type StoryCard = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 };
 
+type Notif = {
+  id: string;
+  title: string;
+  message: string;
+  time: string;
+  tone?: Tone; // ok | warn | info
+  read: boolean;
+};
+
 function toneChip(tone: Tone) {
   if (tone === "ok") return { bg: "rgba(34,197,94,0.16)", bd: "rgba(34,197,94,0.24)", tx: "#166534" };
   if (tone === "warn") return { bg: "rgba(245,158,11,0.18)", bd: "rgba(245,158,11,0.26)", tx: "#92400e" };
@@ -114,6 +123,51 @@ export default function Home() {
 
   const goDashboard = () => router.push("/dashboard" as any);
 
+  // 🔔 Notifications state
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  const [notifs, setNotifs] = useState<Notif[]>([
+    {
+      id: "n1",
+      title: "Gerimis terdeteksi",
+      message: "Perkiraan 15:00–17:00. Siapkan penutup bibit.",
+      time: "2j",
+      tone: "info",
+      read: false,
+    },
+    {
+      id: "n2",
+      title: "Lembap tinggi",
+      message: "Risiko jamur meningkat. Cek daun bagian bawah.",
+      time: "5j",
+      tone: "warn",
+      read: false,
+    },
+    {
+      id: "n3",
+      title: "Update sensor",
+      message: "Data cuaca diperbarui otomatis.",
+      time: "1h",
+      tone: "ok",
+      read: true,
+    },
+  ]);
+
+  const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
+
+  const openNotif = () => setNotifOpen(true);
+  const closeNotif = () => setNotifOpen(false);
+
+  const markRead = (id: string) => {
+    setNotifs((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  };
+
+  const markAllRead = () => {
+    setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  const clearAll = () => setNotifs([]);
+
   // ✅ konten lebih “berisi” tapi tetap minim teks: chips + tiles + story cards
   const slides: Slide[] = useMemo(
     () => [
@@ -123,7 +177,7 @@ export default function Home() {
         sub: "Lahan stabil",
         icon: "shield-check-outline",
         tone: "ok",
-        image: "https://ontariograinfarmer.ca/wp-content/uploads/2019/03/Canadian-Field-Print-Initiative-1.jpg",
+        image: "https://static.vecteezy.com/system/resources/thumbnails/070/373/832/small_2x/rural-landscape-view-of-farm-field-with-barn-and-green-rows-under-a-cloudy-sky-free-photo.jpg",
         chips: [
           { icon: "map-marker", text: "Anggrek" },
           { icon: "clock-outline", text: "Update 2j" },
@@ -177,21 +231,21 @@ export default function Home() {
         title: "SiagaTani",
         meta: "Alert cepat",
         icon: "alert-circle-outline",
-        image: "https://i.pinimg.com/474x/5d/87/9d/5d879daf0aa949dbfcca1f5325491555.jpg",
+        image: "https://img.freepik.com/free-photo/weather-effects-collage-concept_23-2150062062.jpg?semt=ais_hybrid&w=740&q=80",
       },
       {
         key: "st2",
         title: "PilihTanam",
         meta: "AI rekomendasi",
         icon: "robot-outline",
-        image: "https://ichef.bbci.co.uk/ace/ws/640/cpsprodpb/8991/production/_104871253_1a76b03a-0a86-4ee3-85de-46f66d7f179e.jpg.webp",
+        image: "https://www.fertilizewithalm.com/public_files/alm-s3-live/styles/large_1000x450/public/images/seedlings-iStock_000071360629_Large.webp?itok=4ZOSCH4D",
       },
       {
         key: "st3",
         title: "SahabatTani",
         meta: "Koordinator",
         icon: "account-group-outline",
-        image: "https://media.tampang.com/tm_images/article/202407/desain-tanpankde6dmtpqu39ezg.jpg",
+        image: "https://cdn.wikifarmer.com/images/detailed/2023/08/Copy-of-Green-Farmer-Story-Presentation-2.jpg",
       },
     ],
     []
@@ -231,11 +285,18 @@ export default function Home() {
           <View style={styles.headerRight}>
             <View style={styles.locationPill}>
               <MaterialCommunityIcons name="account-circle" size={16} color={GREEN} />
-              <Text style={styles.locationText}>Ditha</Text>  
+              <Text style={styles.locationText}>Ditha</Text>
             </View>
-            <PressScale onPress={goDashboard}>
+
+            {/* 🔔 Notif button (replace dashboard icon) */}
+            <PressScale onPress={openNotif}>
               <View style={styles.miniBtn}>
-                <MaterialCommunityIcons name="view-dashboard-outline" size={18} color={GREEN} />
+                <MaterialCommunityIcons name="bell-outline" size={18} color={GREEN} />
+                {unreadCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+                  </View>
+                )}
               </View>
             </PressScale>
           </View>
@@ -369,6 +430,88 @@ export default function Home() {
 
         <View style={{ height: 26 }} />
       </Animated.ScrollView>
+
+      {/* 🔔 Notifications Panel */}
+      {notifOpen && (
+        <Pressable style={styles.modalBackdrop} onPress={closeNotif} />
+      )}
+
+      {notifOpen && (
+        <View style={styles.sheetWrap}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Notifikasi</Text>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Pressable onPress={markAllRead} hitSlop={10}>
+                  <Text style={styles.sheetAction}>Tandai dibaca</Text>
+                </Pressable>
+                <Pressable onPress={clearAll} hitSlop={10}>
+                  <Text style={[styles.sheetAction, { color: "#b91c1c" }]}>Hapus</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {notifs.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Text style={styles.emptyTitle}>Kosong</Text>
+                <Text style={styles.emptySub}>Belum ada notifikasi baru.</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={notifs}
+                keyExtractor={(it) => it.id}
+                contentContainerStyle={{ paddingBottom: 12 }}
+                renderItem={({ item }) => {
+                  const chip = toneChip(item.tone ?? "info");
+                  return (
+                    <Pressable
+                      onPress={() => {
+                        markRead(item.id);
+                        // optional: buka dashboard/halaman terkait
+                        // router.push("/dashboard" as any);
+                      }}
+                      style={[styles.notifItem, !item.read && styles.notifItemUnread]}
+                    >
+                      <View
+                        style={[
+                          styles.notifDot,
+                          { backgroundColor: chip.tx, opacity: item.read ? 0.3 : 1 },
+                        ]}
+                      />
+
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10 }}>
+                          <Text style={styles.notifTitle} numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          <Text style={styles.notifTime}>{item.time}</Text>
+                        </View>
+
+                        <Text style={styles.notifMsg} numberOfLines={2}>
+                          {item.message}
+                        </Text>
+
+                        {!item.read && (
+                          <View style={styles.unreadPill}>
+                            <Text style={styles.unreadPillText}>Baru</Text>
+                          </View>
+                        )}
+                      </View>
+                    </Pressable>
+                  );
+                }}
+              />
+            )}
+
+            <PressScale onPress={closeNotif}>
+              <View style={styles.sheetClose}>
+                <Text style={styles.sheetCloseText}>Tutup</Text>
+              </View>
+            </PressScale>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -437,6 +580,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 2,
   },
+
+  // 🔔 badge
+  badge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 999,
+    backgroundColor: "#ef4444",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.96)",
+  },
+  badgeText: { color: "#fff", fontWeight: "900", fontSize: 10 },
 
   greetRow: { marginTop: 12, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
   greetTitle: { fontSize: 22, fontWeight: "900", color: TEXT },
@@ -597,4 +757,85 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   ctaText: { color: "#fff", fontWeight: "900", fontSize: 16 },
+
+  // 🔔 Notification sheet styles
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.35)",
+  },
+  sheetWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: "rgba(255,255,255,0.98)",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(17,24,39,0.08)",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -10 },
+    elevation: 8,
+    maxHeight: "72%",
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  sheetTitle: { color: TEXT, fontWeight: "900", fontSize: 16 },
+  sheetAction: { color: GREEN, fontWeight: "900", fontSize: 12 },
+
+  notifItem: {
+    flexDirection: "row",
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(17,24,39,0.06)",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    marginBottom: 10,
+  },
+  notifItemUnread: {
+    borderColor: "rgba(47,111,27,0.18)",
+    backgroundColor: "rgba(47,111,27,0.06)",
+  },
+  notifDot: { width: 10, height: 10, borderRadius: 99, marginTop: 4 },
+
+  notifTitle: { color: TEXT, fontWeight: "900", fontSize: 13, flex: 1 },
+  notifTime: { color: MUTED, fontWeight: "800", fontSize: 12 },
+  notifMsg: { color: MUTED, fontWeight: "800", fontSize: 12 },
+
+  unreadPill: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "rgba(47,111,27,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(47,111,27,0.20)",
+  },
+  unreadPillText: { color: GREEN, fontWeight: "900", fontSize: 11 },
+
+  emptyBox: {
+    paddingVertical: 22,
+    alignItems: "center",
+    gap: 6,
+  },
+  emptyTitle: { color: TEXT, fontWeight: "900", fontSize: 14 },
+  emptySub: { color: MUTED, fontWeight: "800", fontSize: 12 },
+
+  sheetClose: {
+    marginTop: 6,
+    backgroundColor: GREEN,
+    borderRadius: 18,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  sheetCloseText: { color: "#fff", fontWeight: "900" },
 });

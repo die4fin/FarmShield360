@@ -126,7 +126,7 @@ export default function Profile() {
       name: "Ditha",
       role: "Petani • Desa Anggrek",
       avatar:
-        "https://wallpapers-clan.com/wp-content/uploads/2022/05/meme-pfp-04.jpg",
+        "https://media.istockphoto.com/id/2171382633/vector/user-profile-icon-anonymous-person-symbol-blank-avatar-graphic-vector-illustration.jpg?s=612x612&w=0&k=20&c=ZwOF6NfOR0zhYC44xOX06ryIPAUhDvAajrPsaZ6v1-w=",
       field: "Pasar Kemis, Tangerang",
       areaHa: "0.8 ha",
       soil: "Liat",

@@ -445,7 +445,7 @@ export default function LangitCekIndex() {
 
             <Image
               source={{
-                uri: "https://ichef.bbci.co.uk/news/480/cpsprodpb/7CC2/production/_118283913_29xp-meme-mobilemasterat3x-v3.jpg.webp",
+                uri: "https://images.unsplash.com/photo-1517758478390-c89333af4642?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8YmVhdXRpZnVsJTIwc2t5fGVufDB8fDB8fHww",
               }}
               style={styles.heroImg}
               resizeMode="cover"
@@ -466,7 +466,9 @@ export default function LangitCekIndex() {
                   <View style={[styles.menuIconWrap, idx === 1 && styles.menuIconWrapActive]}>
                     <MaterialCommunityIcons name={m.icon} size={22} color={idx === 1 ? "#ffffff" : GREEN} />
                   </View>
-                  <Text style={styles.menuLabel}>{m.label}</Text>
+                  <Text style={styles.menuLabel} numberOfLines={1}>
+                    {m.label}
+                    </Text>
                 </Pressable>
               ))}
             </View>
@@ -515,7 +517,6 @@ export default function LangitCekIndex() {
               </View>
             </View>
 
-            <Text style={styles.sectionDesc}>Work In Progress.</Text>
           </View>
 
           <View style={{ height: 14 }} />
@@ -623,7 +624,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   menuIconWrapActive: { backgroundColor: GREEN, borderColor: GREEN },
-  menuLabel: { marginTop: 6, fontSize: 12, fontWeight: "700", color: "#111827" },
+  menuLabel: {
+    marginTop: 5,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "800",
+    color: "#111827",
+    textAlign: "center",
+  },
 
   strip: {
     marginTop: 12,

@@ -165,7 +165,7 @@ export default function Login() {
               <TextInput
                 value={username}
                 onChangeText={setUsername}
-                placeholder="contoh: dithasuga"
+                placeholder="contoh: dithafirsty"
                 placeholderTextColor="#9ca3af"
                 autoCapitalize="none"
                 autoCorrect={false}
