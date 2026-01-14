@@ -1,6 +1,3 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import * as Location from "expo-location";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -16,16 +13,21 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import * as Location from "expo-location";
 
-const BG = "#f6fbf6";
-const CARD = "#ffffff";
-const TEXT = "#111827";
-const MUTED = "#6b7280";
-const GREEN = "#2f6f1b";
-const { width, height } = Dimensions.get("window");
+import SahabatTaniMap from "../components/SahabatTaniMap";
+
+type Region = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
 
 type Slot = { day: string; time: string; note?: string };
+
 type CoordinatorBase = {
   id: string;
   name: string;
@@ -42,8 +44,14 @@ type CoordinatorBase = {
 };
 
 type Coordinator = CoordinatorBase & {
-  distanceKm: number; // computed from real user location
+  distanceKm: number; // computed if userLoc available, else NaN
 };
+
+const BG = "#f6fbf6";
+const TEXT = "#111827";
+const MUTED = "#6b7280";
+const GREEN = "#2f6f1b";
+const { width, height } = Dimensions.get("window");
 
 function norm(s: string) {
   return (s || "").trim().toLowerCase();
@@ -57,7 +65,7 @@ function formatDistance(km: number) {
 
 // Haversine distance (km)
 function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number) {
-  const R = 6371; // km
+  const R = 6371;
   const dLat = ((bLat - aLat) * Math.PI) / 180;
   const dLng = ((bLng - aLng) * Math.PI) / 180;
   const lat1 = (aLat * Math.PI) / 180;
@@ -65,7 +73,6 @@ function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number) {
 
   const sin1 = Math.sin(dLat / 2);
   const sin2 = Math.sin(dLng / 2);
-
   const h = sin1 * sin1 + Math.cos(lat1) * Math.cos(lat2) * sin2 * sin2;
   const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
   return R * c;
@@ -78,7 +85,9 @@ function parseTimeRangeToMinutes(range: string) {
     .replace("–", "-")
     .replace("—", "-");
 
-  const [a, b] = cleaned.split("-");
+  const parts = cleaned.split("-");
+  if (parts.length < 2) return null;
+
   const parseOne = (t: string) => {
     const tt = t.replace(".", ":");
     const [hh, mm] = tt.split(":").map((x) => parseInt(x, 10));
@@ -86,8 +95,8 @@ function parseTimeRangeToMinutes(range: string) {
     return hh * 60 + mm;
   };
 
-  const start = parseOne(a);
-  const end = parseOne(b);
+  const start = parseOne(parts[0]);
+  const end = parseOne(parts[1]);
   if (start == null || end == null) return null;
   return { start, end };
 }
@@ -107,7 +116,7 @@ function dayToIndex(day: string) {
 }
 
 function isAvailableNow(c: CoordinatorBase, now: Date) {
-  const nowDay = now.getDay(); // 0..6
+  const nowDay = now.getDay();
   const nowMin = now.getHours() * 60 + now.getMinutes();
 
   const todaysSlots = c.availability.slots.filter((s) => dayToIndex(s.day) === nowDay);
@@ -120,7 +129,7 @@ function isAvailableNow(c: CoordinatorBase, now: Date) {
   return false;
 }
 
-// Dummy coordinators (realistic-ish)
+// Dummy coordinators
 const COORDS_BASE: CoordinatorBase[] = [
   {
     id: "kst-01",
@@ -130,7 +139,7 @@ const COORDS_BASE: CoordinatorBase[] = [
     address: "Jl. Saluran Irigasi No. 12, RT 02/RW 05",
     phoneMasked: "+62 8** **** 193",
     lat: -7.327,
-    lng: 108.220,
+    lng: 108.22,
     availability: {
       todayLabel: "Hari ini • 09.00–12.00 & 15.00–17.00",
       slots: [
@@ -167,7 +176,7 @@ const COORDS_BASE: CoordinatorBase[] = [
     address: "Jl. Kebun Campuran No. 3, RT 03/RW 01",
     phoneMasked: "+62 8** **** 508",
     lat: -7.319,
-    lng: 108.210,
+    lng: 108.21,
     availability: {
       todayLabel: "Hari ini • 10.00–12.30",
       slots: [
@@ -198,7 +207,6 @@ const COORDS_BASE: CoordinatorBase[] = [
 ];
 
 function getFallbackRegion(): Region {
-  // fallback sekitar Tasik (dummy)
   return {
     latitude: -7.325,
     longitude: 108.228,
@@ -210,7 +218,7 @@ function getFallbackRegion(): Region {
 export default function SahabatTaniPage() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<any>(null);
 
   const [query, setQuery] = useState("");
   const [radiusKm, setRadiusKm] = useState<1 | 3 | 5>(3);
@@ -219,14 +227,12 @@ export default function SahabatTaniPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState<Coordinator | null>(null);
 
-  // Location states
   const [locLoading, setLocLoading] = useState(false);
   const [locErr, setLocErr] = useState<string | null>(null);
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Tick every minute for "available now" to stay fresh
+  // tick per minute (availability refresh)
   const [tick, setTick] = useState(0);
-
   useEffect(() => {
     const t = setInterval(() => setTick((p) => p + 1), 60_000);
     return () => clearInterval(t);
@@ -234,7 +240,7 @@ export default function SahabatTaniPage() {
 
   const now = useMemo(() => new Date(), [tick]);
 
-  const initialRegion = useMemo(() => {
+  const initialRegion = useMemo<Region>(() => {
     if (userLoc) {
       return {
         latitude: userLoc.lat,
@@ -246,15 +252,11 @@ export default function SahabatTaniPage() {
     return getFallbackRegion();
   }, [userLoc]);
 
-  const computeCoords = useMemo(() => {
-    const base = COORDS_BASE;
-
-    // If we don't have user location yet, distances are NaN (UI will show "—")
+  const coordsWithDistance = useMemo<Coordinator[]>(() => {
     if (!userLoc) {
-      return base.map((c) => ({ ...c, distanceKm: Number.NaN })) as Coordinator[];
+      return COORDS_BASE.map((c) => ({ ...c, distanceKm: Number.NaN }));
     }
-
-    return base
+    return COORDS_BASE
       .map((c) => ({
         ...c,
         distanceKm: haversineKm(userLoc.lat, userLoc.lng, c.lat, c.lng),
@@ -265,28 +267,23 @@ export default function SahabatTaniPage() {
   const filtered = useMemo(() => {
     const q = norm(query);
 
-    const byQuery = !q.length
-      ? computeCoords
-      : computeCoords.filter((c) => {
-          const hay = `${c.name} ${c.desa} ${c.address} ${c.areaTags.join(" ")}`.toLowerCase();
-          return hay.includes(q);
-        });
+    const byQuery =
+      !q.length
+        ? coordsWithDistance
+        : coordsWithDistance.filter((c) => {
+            const hay = `${c.name} ${c.desa} ${c.address} ${c.areaTags.join(" ")}`.toLowerCase();
+            return hay.includes(q);
+          });
 
-    // If location unknown, don't hard-filter by radius (because we can't compute)
-    const byRadius = userLoc
-      ? byQuery.filter((c) => c.distanceKm <= radiusKm)
-      : byQuery;
+    const byRadius = userLoc ? byQuery.filter((c) => c.distanceKm <= radiusKm) : byQuery;
+    const byAvail = onlyAvailableNow ? byRadius.filter((c) => isAvailableNow(c, now)) : byRadius;
 
-    const byAvailability = onlyAvailableNow
-      ? byRadius.filter((c) => isAvailableNow(c, now))
-      : byRadius;
-
-    return byAvailability;
-  }, [query, radiusKm, onlyAvailableNow, computeCoords, userLoc, now]);
+    return byAvail;
+  }, [query, coordsWithDistance, userLoc, radiusKm, onlyAvailableNow, now]);
 
   const availableCount = useMemo(() => {
-    return COORDS_BASE.filter((c) => isAvailableNow(c, new Date())).length;
-  }, []);
+    return COORDS_BASE.filter((c) => isAvailableNow(c, now)).length;
+  }, [now]);
 
   const requestLocation = async () => {
     setLocErr(null);
@@ -307,8 +304,8 @@ export default function SahabatTaniPage() {
       const next = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       setUserLoc(next);
 
-      // Animate to user region
-      mapRef.current?.animateToRegion(
+      // animate only on native map (if mapRef available)
+      mapRef.current?.animateToRegion?.(
         {
           latitude: next.lat,
           longitude: next.lng,
@@ -319,20 +316,20 @@ export default function SahabatTaniPage() {
       );
 
       setLocLoading(false);
-    } catch (e) {
+    } catch {
       setLocErr("Gagal mengambil lokasi. Coba nyalakan GPS / izin lokasi.");
       setLocLoading(false);
     }
   };
 
-  const openGoogleMapsNative = async (c: CoordinatorBase) => {
+  const openMaps = async (c: CoordinatorBase) => {
     const latlng = `${c.lat},${c.lng}`;
-    const label = encodeURIComponent(`${c.name} - ${c.desa}`);
-
-    // Fallback web (works everywhere)
     const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${latlng}&travelmode=driving`;
 
-    // iOS: prefer Google Maps app if installed, else Apple Maps, else web
+    if (Platform.OS === "web") {
+      return Linking.openURL(webUrl);
+    }
+
     if (Platform.OS === "ios") {
       const gmaps = `comgooglemaps://?daddr=${latlng}&directionsmode=driving`;
       const apple = `http://maps.apple.com/?daddr=${latlng}&dirflg=d`;
@@ -350,7 +347,6 @@ export default function SahabatTaniPage() {
       }
     }
 
-    // Android: prefer google.navigation if available
     const androidNav = `google.navigation:q=${latlng}&mode=d`;
     try {
       const canNav = await Linking.canOpenURL(androidNav);
@@ -365,8 +361,7 @@ export default function SahabatTaniPage() {
     setSelected(c);
     setDetailOpen(true);
 
-    // center map on coordinator
-    mapRef.current?.animateToRegion(
+    mapRef.current?.animateToRegion?.(
       {
         latitude: c.lat,
         longitude: c.lng,
@@ -392,23 +387,16 @@ export default function SahabatTaniPage() {
 
           <View style={{ flex: 1 }}>
             <Text style={styles.topTitle}>SahabatTani</Text>
-            <Text style={styles.topSub}>
-              Koordinator Desa • {availableCount} tersedia (sekarang)
-            </Text>
+            <Text style={styles.topSub}>Koordinator Desa • {availableCount} tersedia (sekarang)</Text>
           </View>
 
-          <Pressable
-            onPress={requestLocation}
-            style={({ pressed }) => [styles.locBtn, pressed && { opacity: 0.92 }]}
-          >
+          <Pressable onPress={requestLocation} style={({ pressed }) => [styles.locBtn, pressed && { opacity: 0.92 }]}>
             <MaterialCommunityIcons name="crosshairs-gps" size={18} color="#fff" />
-            <Text style={styles.locBtnText}>
-              {locLoading ? "..." : userLoc ? "My Loc" : "Use My Loc"}
-            </Text>
+            <Text style={styles.locBtnText}>{locLoading ? "..." : userLoc ? "My Loc" : "Use My Loc"}</Text>
           </Pressable>
         </View>
 
-        {/* FILTER BAR */}
+        {/* FILTER CARD */}
         <View style={styles.filterCard}>
           <View style={styles.searchRow}>
             <MaterialCommunityIcons name="magnify" size={20} color="#9ca3af" />
@@ -429,22 +417,15 @@ export default function SahabatTaniPage() {
 
           <View style={styles.filtersRow}>
             <View style={styles.radiusGroup}>
-              <Text style={styles.smallLabel}>
-                Radius {userLoc ? "" : "(aktif setelah Use My Loc)"}
-              </Text>
-
+              <Text style={styles.smallLabel}>Radius {userLoc ? "" : "(aktif setelah Use My Loc)"}</Text>
               <View style={styles.radiusBtns}>
                 {[1, 3, 5].map((r) => {
                   const active = radiusKm === r;
                   return (
                     <Pressable
                       key={r}
-                      onPress={() => setRadiusKm(r as any)}
-                      style={({ pressed }) => [
-                        styles.radiusBtn,
-                        active && styles.radiusBtnActive,
-                        pressed && { opacity: 0.92 },
-                      ]}
+                      onPress={() => setRadiusKm(r as 1 | 3 | 5)}
+                      style={({ pressed }) => [styles.radiusBtn, active && styles.radiusBtnActive, pressed && { opacity: 0.92 }]}
                     >
                       <Text style={[styles.radiusText, active && { color: "#fff" }]}>{r} km</Text>
                     </Pressable>
@@ -455,20 +436,14 @@ export default function SahabatTaniPage() {
 
             <Pressable
               onPress={() => setOnlyAvailableNow((p) => !p)}
-              style={({ pressed }) => [
-                styles.toggle,
-                onlyAvailableNow && styles.toggleOn,
-                pressed && { opacity: 0.92 },
-              ]}
+              style={({ pressed }) => [styles.toggle, onlyAvailableNow && styles.toggleOn, pressed && { opacity: 0.92 }]}
             >
               <MaterialCommunityIcons
                 name={onlyAvailableNow ? "check-circle" : "circle-outline"}
                 size={18}
                 color={onlyAvailableNow ? "#16a34a" : "#9ca3af"}
               />
-              <Text style={[styles.toggleText, onlyAvailableNow && { color: "#166534" }]}>
-                Available now
-              </Text>
+              <Text style={[styles.toggleText, onlyAvailableNow && { color: "#166534" }]}>Available now</Text>
             </Pressable>
           </View>
 
@@ -485,47 +460,20 @@ export default function SahabatTaniPage() {
           </Text>
         </View>
 
-        {/* MAP */}
+        {/* MAP WRAP */}
         <View style={styles.mapWrap}>
-          <MapView
-            ref={(r) => {
-              if (r) mapRef.current = r;
-            }}
-            provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-            style={StyleSheet.absoluteFill}
+          <SahabatTaniMap
+            mapRef={mapRef}
             initialRegion={initialRegion}
-          >
-            {/* user marker */}
-            {userLoc ? (
-              <Marker
-                coordinate={{ latitude: userLoc.lat, longitude: userLoc.lng }}
-                title="Lokasi Saya"
-              >
-                <View style={styles.meMarker}>
-                  <MaterialCommunityIcons name="account" size={16} color="#fff" />
-                </View>
-              </Marker>
-            ) : null}
-
-            {filtered.map((c) => {
-              const avail = isAvailableNow(c, now);
-              return (
-                <Marker
-                  key={c.id}
-                  coordinate={{ latitude: c.lat, longitude: c.lng }}
-                  title={c.name}
-                  description={`${c.desa}${Number.isFinite(c.distanceKm) ? ` • ${formatDistance(c.distanceKm)}` : ""}${
-                    avail ? " • Available now" : ""
-                  }`}
-                  onPress={() => openDetail(c)}
-                >
-                  <View style={[styles.markerWrap, avail && styles.markerWrapAvail]}>
-                    <MaterialCommunityIcons name="home-map-marker" size={18} color="#fff" />
-                  </View>
-                </Marker>
-              );
-            })}
-          </MapView>
+            userLoc={userLoc}
+            items={filtered}
+            now={now}
+            isAvailableNow={isAvailableNow}
+            onPressMarker={openDetail}
+            onOpenFirst={() => {
+              if (filtered[0]) openMaps(filtered[0]);
+            }}
+          />
 
           {/* Floating list preview */}
           <View style={styles.bottomPeek}>
@@ -534,19 +482,11 @@ export default function SahabatTaniPage() {
               <Text style={styles.peekHint}>Scroll →</Text>
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 10, paddingRight: 6 }}
-            >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 6 }}>
               {filtered.slice(0, 10).map((c) => {
                 const avail = isAvailableNow(c, now);
                 return (
-                  <Pressable
-                    key={c.id}
-                    onPress={() => openDetail(c)}
-                    style={({ pressed }) => [styles.peekCard, pressed && { opacity: 0.92 }]}
-                  >
+                  <Pressable key={c.id} onPress={() => openDetail(c)} style={({ pressed }) => [styles.peekCard, pressed && { opacity: 0.92 }]}>
                     <View style={styles.peekTop}>
                       <View style={[styles.avatar, avail && styles.avatarAvail]}>
                         <MaterialCommunityIcons name="account" size={16} color="#fff" />
@@ -576,10 +516,7 @@ export default function SahabatTaniPage() {
                       {c.address}
                     </Text>
 
-                    <Pressable
-                      onPress={() => openGoogleMapsNative(c)}
-                      style={({ pressed }) => [styles.peekBtn, pressed && { opacity: 0.92 }]}
-                    >
+                    <Pressable onPress={() => openMaps(c)} style={({ pressed }) => [styles.peekBtn, pressed && { opacity: 0.92 }]}>
                       <MaterialCommunityIcons name="google-maps" size={16} color="#fff" />
                       <Text style={styles.peekBtnText}>Open Maps</Text>
                     </Pressable>
@@ -619,7 +556,7 @@ export default function SahabatTaniPage() {
                   </View>
 
                   <View style={styles.actions}>
-                    <Pressable onPress={() => openGoogleMapsNative(selected)} style={styles.primaryBtn}>
+                    <Pressable onPress={() => openMaps(selected)} style={styles.primaryBtn}>
                       <MaterialCommunityIcons name="google-maps" size={18} color="#fff" />
                       <Text style={styles.primaryBtnText}>Open Maps</Text>
                     </Pressable>
@@ -658,33 +595,18 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
 
   topBar: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
-  backBtn: {
-    width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#fff",
-  },
+  backBtn: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
   topTitle: { fontSize: 16, fontWeight: "900", color: TEXT },
   topSub: { marginTop: 2, fontSize: 12, fontWeight: "800", color: MUTED },
 
-  locBtn: {
+  locBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 16, backgroundColor: GREEN },
+  locBtnText: { color: "#fff", fontWeight: "900" },
+
+  filterCard: { marginHorizontal: 16, backgroundColor: "#fff", borderRadius: 18, padding: 14, borderWidth: 1, borderColor: "rgba(17,24,39,0.06)" },
+  searchRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 16,
-    backgroundColor: GREEN,
-  },
-  locBtnText: { color: "#fff", fontWeight: "900" },
-
-  filterCard: {
-    marginHorizontal: 16,
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "rgba(17,24,39,0.06)",
-  },
-  searchRow: {
-    flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "#f8fafc",
     borderRadius: 14,
     borderWidth: 1,
@@ -753,29 +675,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
-  meMarker: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#111827",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.9)",
-  },
-
-  markerWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#111827",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.85)",
-  },
-  markerWrapAvail: { backgroundColor: GREEN },
-
   bottomPeek: {
     position: "absolute",
     left: 10,
@@ -796,52 +695,21 @@ const styles = StyleSheet.create({
   peekTitle: { fontSize: 14, fontWeight: "900", color: TEXT },
   peekHint: { fontSize: 12, fontWeight: "900", color: MUTED },
 
-  peekCard: {
-    width: Math.min(260, width * 0.68),
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(17,24,39,0.06)",
-  },
+  peekCard: { width: Math.min(260, width * 0.68), backgroundColor: "#fff", borderRadius: 16, padding: 12, borderWidth: 1, borderColor: "rgba(17,24,39,0.06)" },
   peekTop: { flexDirection: "row", alignItems: "center", gap: 10 },
   avatar: { width: 32, height: 32, borderRadius: 12, backgroundColor: "#111827", alignItems: "center", justifyContent: "center" },
   avatarAvail: { backgroundColor: GREEN },
   peekName: { fontWeight: "900", color: TEXT },
   peekMeta: { marginTop: 2, fontWeight: "800", color: MUTED, fontSize: 12 },
 
-  badgeAvail: {
-    backgroundColor: "#ecfdf5",
-    borderWidth: 1,
-    borderColor: "#bbf7d0",
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
+  badgeAvail: { backgroundColor: "#ecfdf5", borderWidth: 1, borderColor: "#bbf7d0", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 },
   badgeAvailText: { color: "#166534", fontWeight: "900", fontSize: 11 },
-  badgeOff: {
-    backgroundColor: "#f3f4f6",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
+  badgeOff: { backgroundColor: "#f3f4f6", borderWidth: 1, borderColor: "#e5e7eb", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 999 },
   badgeOffText: { color: "#374151", fontWeight: "900", fontSize: 11 },
 
   peekAddr: { marginTop: 8, color: MUTED, fontWeight: "700", lineHeight: 18, fontSize: 12 },
 
-  peekBtn: {
-    marginTop: 10,
-    backgroundColor: GREEN,
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
+  peekBtn: { marginTop: 10, backgroundColor: GREEN, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   peekBtnText: { color: "#fff", fontWeight: "900", fontSize: 12 },
 
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "flex-end" },
@@ -849,26 +717,13 @@ const styles = StyleSheet.create({
   sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 10 },
   sheetTitle: { fontSize: 16, fontWeight: "900", color: TEXT },
   sheetSub: { marginTop: 4, fontSize: 12, fontWeight: "700", color: MUTED, lineHeight: 18 },
-  closeX: {
-    width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(17,24,39,0.04)",
-  },
+  closeX: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(17,24,39,0.04)" },
 
   infoRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 6 },
   infoText: { flex: 1, color: MUTED, fontWeight: "800", lineHeight: 18 },
 
   actions: { marginTop: 10, flexDirection: "row", gap: 10 },
-  primaryBtn: {
-    flex: 1,
-    backgroundColor: GREEN,
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
+  primaryBtn: { flex: 1, backgroundColor: GREEN, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   primaryBtnText: { color: "#fff", fontWeight: "900" },
   secondaryBtn: {
     flex: 1,
@@ -885,14 +740,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: GREEN, fontWeight: "900" },
 
-  scheduleBox: {
-    marginTop: 12,
-    backgroundColor: "rgba(17,24,39,0.03)",
-    borderRadius: 16,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "rgba(17,24,39,0.06)",
-  },
+  scheduleBox: { marginTop: 12, backgroundColor: "rgba(17,24,39,0.03)", borderRadius: 16, padding: 12, borderWidth: 1, borderColor: "rgba(17,24,39,0.06)" },
   scheduleTitle: { fontWeight: "900", color: TEXT, marginBottom: 8 },
   slotRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   slotDay: { width: 70, fontWeight: "900", color: TEXT, fontSize: 12 },
