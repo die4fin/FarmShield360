@@ -4,17 +4,13 @@
     "slug": "farmshield360",
     "version": "1.0.0",
     "orientation": "portrait",
-
     "icon": "./assets/images/farmshield-logo.png",
-
     "scheme": "fs360",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true
     },
-
     "android": {
       "package": "com.die4fin.farmshield360",
       "adaptiveIcon": {
@@ -25,12 +21,10 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/images/farmshield-logo.png"
     },
-
     "plugins": [
       "expo-router",
       [
@@ -42,6 +36,12 @@
           "backgroundColor": "#2f6f1b"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "31e03ba7-5918-41d1-8b33-e2f81eb120d7"
+      }
+    }
   }
 }
